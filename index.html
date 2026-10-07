@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Game Merangkai Kata – 1 Jawaban/Soal</title>
+  <style>
+    :root{
+      --bg:#0f172a; --panel:#111827; --text:#e5e7eb; --muted:#9ca3af; --accent:#22c55e; --danger:#ef4444;
+    }
+    *{box-sizing:border-box}
+    body{margin:0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif; background:var(--bg); color:var(--text); display:flex; align-items:center; justify-content:center; min-height:100vh;}
+    .wrap{width:95%; max-width:780px; background:var(--panel); border-radius:16px; padding:24px; box-shadow: 0 10px 30px rgba(0,0,0,.35)}
+    h1{margin:0 0 8px; font-size:24px}
+    p.sub{margin:0 0 16px; color:var(--muted)}
+    .hud{display:flex; gap:12px; flex-wrap:wrap; align-items:center; justify-content:space-between; margin:8px 0 8px}
+    .chip{background:#0b1220; border:1px solid #1f2937; padding:6px 10px; border-radius:999px; font-size:14px}
+    .letters{display:flex; flex-wrap:wrap; gap:10px; justify-content:center; margin:16px 0}
+    .tile{min-width:48px; height:48px; display:flex; align-items:center; justify-content:center; background:#1f2937; border:1px solid #334155; border-radius:10px; font-size:22px; font-weight:700; cursor:pointer; user-select:none; transition: transform .05s ease}
+    .tile:active{transform:scale(.96)}
+    .answer{display:flex; gap:10px; justify-content:center; margin:8px 0}
+    input[type=text]{flex:1; min-width:200px; background:#0b1220; color:var(--text); border:1px solid #334155; border-radius:10px; padding:10px 12px; font-size:18px}
+    .btn{background:#111827; color:var(--text); border:1px solid #334155; border-radius:10px; padding:10px 14px; font-size:16px; cursor:pointer}
+    .btn.primary{background:#16a34a; border-color:#16a34a}
+    .btn.ghost{background:#0b1220}
+    .status{min-height:24px; text-align:center; margin:8px 0 0; font-weight:600}
+    .ok{color:var(--accent)}
+    .bad{color:var(--danger)}
+    .grid{display:grid; grid-template-columns: 1fr; gap:10px}
+    @media (min-width:560px){ .grid{ grid-template-columns: 1fr auto auto auto } }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <h1>🎯 Game Merangkai Kata</h1>
+    <p class="sub">Klik huruf untuk menyusun kata, atau ketik manual. Setiap soal punya waktu <b>1 menit</b>.</p>
+
+    <div class="hud">
+      <span class="chip">Soal: <b id="qNow">1</b>/<span id="qTotal">10</span></span>
+      <span class="chip">Skor: <b id="score">0</b></span>
+      <span class="chip">⏳ Waktu: <b id="timer">60</b> dtk</span>
+    </div>
+
+    <div id="letters" class="letters"></div>
+
+    <div class="grid">
+      <div class="answer" style="grid-column:1/2">
+        <input id="guess" type="text" placeholder="Ketik jawaban di sini…" />
+      </div>
+      <button id="btnCheck" class="btn primary">Cek</button>
+      <button id="btnClear" class="btn ghost">Hapus</button>
+      <button id="btnSkip" class="btn ghost">Lewati</button>
+    </div>
+
+    <div id="status" class="status"></div>
+  </main>
+
+  <!-- Audio -->
+  <audio id="sCorrect" src="bell.mp3"></audio>
+  <audio id="sWrong"   src="wrong.mp3"></audio>
+  <audio id="sFinish"  src="gameover.mp3"></audio>
+
+  <script>
+    const QUESTIONS = [
+      { letters: "V - A - S - I - I - A - T - G - R", answer: "GRAVITASI" },
+      { letters: "N - R - A - U - U - S",             answer: "URANUS"     },
+      { letters: "O - U - V - L - E - S - I - R",     answer: "REVOLUSI"   },
+      { letters: "R - N - G - H - A - E - A",         answer: "GERHANA"    },
+      { letters: "O - T - D - E - S - A - I - R",     answer: "ASTEROID"   },
+      { letters: "O - T - N - W - N - E",             answer: "NEWTON"     },
+      { letters: "S - T - K - A - T - A - N - O - N", answer: "KONSTANTA"  },
+      { letters: "R - I - O - T - O - M - E - E - D", answer: "METEOROID"  },
+      { letters: "M - S - R - T - E - A - F - O",     answer: "ATMOSFER"   },
+      { letters: "I - L - M - I - K",                 answer: "IKLIM"      },
+    ];
+
+    let idx = 0;
+    let skor = 0;
+    let timeLeft = 60;
+    let timerId;
+
+    const elLetters = document.getElementById('letters');
+    const elGuess   = document.getElementById('guess');
+    const elStatus  = document.getElementById('status');
+    const elQNow    = document.getElementById('qNow');
+    const elQTotal  = document.getElementById('qTotal');
+    const elScore   = document.getElementById('score');
+    const elTimer   = document.getElementById('timer');
+
+    elQTotal.textContent = QUESTIONS.length;
+
+    function onlyLetters(str){ return (str || '').toUpperCase().replace(/[^A-Z]/g, ''); }
+    function shuffle(arr){
+      for(let i=arr.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [arr[i],arr[j]]=[arr[j],arr[i]]; }
+      return arr;
+    }
+
+    function renderQuestion(){
+      clearInterval(timerId);
+      timeLeft = 60;
+      elTimer.textContent = timeLeft;
+
+      timerId = setInterval(()=>{
+        timeLeft--;
+        elTimer.textContent = timeLeft;
+        if(timeLeft <= 0){
+          clearInterval(timerId);
+          elStatus.textContent = "⏰ Waktu habis! Lewat ke soal berikutnya.";
+          elStatus.className = 'status bad';
+          setTimeout(next, 1000);
+        }
+      },1000);
+
+      const q = QUESTIONS[idx];
+      elQNow.textContent = idx + 1;
+      elStatus.textContent = '';
+      elGuess.value = '';
+      const rawLetters = onlyLetters(q.letters).split('');
+      elLetters.innerHTML = '';
+      shuffle([...rawLetters]).forEach(L => {
+        const btn = document.createElement('button');
+        btn.className = 'tile';
+        btn.textContent = L;
+        btn.addEventListener('click', () => { elGuess.value += L; elGuess.focus(); });
+        elLetters.appendChild(btn);
+      });
+    }
+
+    function play(id){ const a=document.getElementById(id); if(a){ a.currentTime=0; a.play().catch(()=>{}); } }
+
+    function check(){
+      const q = QUESTIONS[idx];
+      const ans = (elGuess.value || '').trim().toUpperCase();
+      if(!ans){ elStatus.textContent = 'Ketik jawaban dulu ya.'; return; }
+      if(ans === q.answer.toUpperCase()){
+        skor += 1;
+        elScore.textContent = skor;
+        elStatus.textContent = 'Benar! ✅';
+        elStatus.className = 'status ok';
+        play('sCorrect');
+        clearInterval(timerId);
+        setTimeout(next, 700);
+      } else {
+        elStatus.textContent = 'Salah, coba lagi.';
+        elStatus.className = 'status bad';
+        play('sWrong');
+      }
+    }
+
+    function next(){
+      idx++;
+      if(idx < QUESTIONS.length){
+        renderQuestion();
+      } else {
+        clearInterval(timerId);
+        elLetters.innerHTML = '';
+        document.querySelector('.grid').style.display = 'none';
+        elStatus.className = 'status ok';
+        elStatus.textContent = `🎉 Selesai! Skor kamu: ${skor}/${QUESTIONS.length}`;
+        play('sFinish');
+      }
+    }
+
+    document.getElementById('btnCheck').addEventListener('click', check);
+    document.getElementById('btnClear').addEventListener('click', () => { elGuess.value=''; elGuess.focus(); });
+    document.getElementById('btnSkip').addEventListener('click', ()=>{ clearInterval(timerId); next(); });
+    elGuess.addEventListener('keydown', (e)=>{ if(e.key==='Enter') check(); });
+
+    renderQuestion();
+  </script>
+</body>
+</html>
